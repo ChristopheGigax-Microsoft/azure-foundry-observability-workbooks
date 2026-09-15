@@ -9,6 +9,8 @@ Pensé pour être réutilisé rapidement d'un client/projet à l'autre : chaque 
 | Workbook | Description | Lien |
 |---|---|---|
 | **Token Consumption** | Conso de tokens par déploiement de modèle, coût Defender for AI estimé (temps réel + projection 30j), latence, répartition prompt/generated/cached, heatmap horaire, top requêtes coûteuses, callers | [`workbooks/token-consumption/workbook.json`](workbooks/token-consumption/workbook.json) |
+| **Defender for AI Threat Insights** | Alertes de sécurité Defender for AI (jailbreak, injection de prompt, vol d'identifiants, IP suspecte, attaques wallet, etc.) via Azure Resource Graph — aucune configuration Log Analytics requise | [`workbooks/defender-ai-threat-insights/workbook.json`](workbooks/defender-ai-threat-insights/workbook.json) |
+| **API Surface & Request Type Usage** | Répartition du trafic par type d'opération (création de réponse d'agent, embeddings, gestion d'assistants), taille des payloads, callers par principal — complète la vue tokens avec une vue "surface API" | [`workbooks/api-surface-usage/workbook.json`](workbooks/api-surface-usage/workbook.json) |
 
 ## Utilisation rapide
 
@@ -46,6 +48,14 @@ az resource create \
 ## Schéma de données validé
 
 Les requêtes KQL de ce repo sont construites et testées contre le **schéma réel** observé sur un compte Azure AI Foundry (catégories `AzureOpenAIRequestUsage` et `RequestResponse` de la table `AzureDiagnostics`, mode legacy), pas contre une documentation générique. Voir [prérequis](docs/prerequisites.md#5-limites-connues-schéma-vérifié-en-conditions-réelles) pour le détail des limites connues et pièges courants (arrays JSON, champs absents selon les comptes, etc.).
+
+## Positionnement vis-à-vis du natif Foundry / Defender for Cloud
+
+Ces workbooks sont conçus pour **ne pas faire doublon** avec :
+- Le dashboard natif **Application analytics** de Foundry (`Monitoring` dans le portail Foundry) — qui nécessite un Application Insights connecté au projet et se base sur le tracing, pas sur les logs de diagnostic du compte Cognitive Services.
+- Les workbooks génériques de compliance/posture de Defender for Cloud — qui ne couvrent pas les alertes AI threat protection spécifiquement.
+
+Chaque workbook de ce repo fonctionne **sans tracing App Insights**, à partir des logs de diagnostic natifs du compte (`AzureDiagnostics`) ou d'Azure Resource Graph.
 
 ## Contribuer
 

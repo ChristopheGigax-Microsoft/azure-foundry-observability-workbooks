@@ -1,0 +1,145 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# API Surface & Request Type Usage\n\nCe workbook s'appuie sur la catégorie **`RequestResponse`** de `AzureDiagnostics` (compte Azure AI Foundry / Cognitive Services) pour donner une vue de **quel type d'API est réellement utilisé** : création de réponses d'agent (`create_response`), embeddings, gestion des assistants, appels de gestion de projet, etc.\n\nComplémentaire au workbook **Token Consumption** (qui se concentre sur les tokens) : ici on regarde le **volume et la taille des requêtes/réponses par type d'opération**, utile pour repérer un usage inattendu (ex: appels de listing d'assistants en boucle, embeddings redondants) ou dimensionner l'infrastructure.\n\n⚠️ **Limite connue** : ces logs ne descendent pas au niveau de l'appel d'outil individuel (MCP `mcp_call`, `mcp_list_tools`, etc.) — cette granularité n'existe qu'en tracing (Application Insights + OpenTelemetry GenAI côté projet Foundry), pas dans les logs de diagnostic du compte.\n\n👉 **Avant utilisation** : sélectionnez votre workspace Log Analytics dans le paramètre `Workspace` ci-dessous. Voir [prérequis](../../docs/prerequisites.md)."
+      },
+      "name": "intro"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "ws-param",
+            "version": "KqlParameterItem/1.0",
+            "name": "Workspace",
+            "type": 5,
+            "isRequired": true,
+            "value": "",
+            "typeSettings": {
+              "resourceTypeFilter": { "microsoft.operationalinsights/workspaces": true },
+              "additionalResourceOptions": []
+            }
+          },
+          {
+            "id": "time-param",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "type": 4,
+            "isRequired": true,
+            "value": { "durationMs": 2592000000 },
+            "typeSettings": {
+              "selectableValues": [
+                { "durationMs": 86400000 },
+                { "durationMs": 604800000 },
+                { "durationMs": 2592000000 },
+                { "durationMs": 7776000000 }
+              ]
+            }
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"RequestResponse\"\n| extend Props = parse_json(properties_s)\n| extend ApiName = tostring(Props.apiName)\n| summarize TotalRequests = count(),\n            DistinctOperations = dcount(OperationName),\n            DistinctApis = dcount(ApiName)",
+        "size": 4,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": { "columnMatch": "TotalRequests", "formatter": 1 },
+          "leftContent": { "columnMatch": "TotalRequests", "formatter": 12, "formatOptions": { "palette": "blue" } },
+          "showBorder": true
+        }
+      },
+      "name": "kpi-tiles"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Répartition par type d'opération\nVolume d'appels par `OperationName` réel observé : `create_response` (invocation d'agent), `Embeddings_Create`, `List_Assistants`, `Projects_Wildcard_Get/Post` (gestion de projet), etc."
+      },
+      "name": "operations-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"RequestResponse\"\n| extend Props = parse_json(properties_s)\n| extend ApiName = tostring(Props.apiName)\n| summarize Requests = count() by OperationName, ApiName\n| order by Requests desc\n| render piechart",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "piechart"
+      },
+      "name": "operations-piechart"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"RequestResponse\"\n| extend Props = parse_json(properties_s)\n| summarize Requests = count() by bin(TimeGenerated, 1h), OperationName\n| render timechart",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "timechart"
+      },
+      "name": "operations-over-time"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Taille des requêtes/réponses par opération\nRepère les opérations qui transfèrent le plus de volume — utile pour comprendre l'empreinte réseau et identifier des payloads anormalement gros (contexte trop long, réponse verbeuse)."
+      },
+      "name": "payload-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"RequestResponse\"\n| extend Props = parse_json(properties_s)\n| extend ApiName = tostring(Props.apiName),\n         RequestLength = tolong(Props.requestLength),\n         ResponseLength = tolong(Props.responseLength)\n| summarize Requests = count(),\n            AvgRequestLength = round(avg(RequestLength), 0),\n            AvgResponseLength = round(avg(ResponseLength), 0),\n            MaxRequestLength = max(RequestLength),\n            MaxResponseLength = max(ResponseLength)\n    by OperationName, ApiName\n| order by AvgResponseLength desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            { "columnMatch": "AvgResponseLength", "formatter": 8, "formatOptions": { "palette": "blue" } }
+          ]
+        }
+      },
+      "name": "payload-sizes"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Répartition par caller (objectId / callerObjectId)\nIdentifie quel principal (utilisateur, service principal, ou identité managée de l'agent) génère le plus d'appels — utile pour distinguer trafic humain (Playground) vs trafic applicatif/agent automatisé."
+      },
+      "name": "callers-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"RequestResponse\"\n| extend Props = parse_json(properties_s)\n| extend ObjectId = tostring(Props.objectId),\n         CallerObjectId = tostring(Props.callerObjectId)\n| extend Principal = iff(isnotempty(CallerObjectId), CallerObjectId, ObjectId)\n| where isnotempty(Principal)\n| summarize Requests = count(), Operations = dcount(OperationName) by Principal, CallerIPAddress\n| order by Requests desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "callers-table"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

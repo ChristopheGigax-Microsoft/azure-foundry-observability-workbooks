@@ -1,0 +1,112 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Defender for AI — Threat & Security Insights\n\nCe workbook s'appuie sur **Azure Resource Graph** (`SecurityResources` — alertes Microsoft Defender for Cloud), pas sur Log Analytics. Il fonctionne **sans configuration supplémentaire** (contrairement à la table `SecurityAlert` de Log Analytics, qui nécessite un export continu explicite depuis Defender for Cloud).\n\nPrérequis : **Microsoft Defender for AI Services** activé (tier Standard) sur l'abonnement contenant vos ressources Azure AI Foundry / Cognitive Services.\n\nAlertes couvertes (préfixes `AI.Azure_*` et `AI.AIModelScan_*`) : tentatives de jailbreak, vol d'identifiants dans une réponse IA, injection de prompt (ASCII smuggling), URL de phishing partagée par le modèle, accès depuis IP suspecte/Tor, attaques \"wallet\" (abus de coût), invocation d'outil anormale, reconnaissance LLM, malware dans un modèle uploadé.\n\nRéférence : [Alerts for AI services (Microsoft Learn)](https://learn.microsoft.com/azure/defender-for-cloud/alerts-ai-workloads)"
+      },
+      "name": "intro"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "sub-param",
+            "version": "KqlParameterItem/1.0",
+            "name": "Subscriptions",
+            "type": 6,
+            "isRequired": true,
+            "typeSettings": { "additionalResourceOptions": [], "includeAll": false }
+          }
+        ],
+        "style": "pills",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "SecurityResources\n| where type == \"microsoft.security/alerts\"\n| where properties.alertType startswith \"AI.\"\n| summarize TotalAlerts = count(),\n            HighSeverity = countif(tostring(properties.severity) == \"High\"),\n            MediumSeverity = countif(tostring(properties.severity) == \"Medium\"),\n            LowSeverity = countif(tostring(properties.severity) == \"Low\"),\n            DistinctAlertTypes = dcount(tostring(properties.alertType))",
+        "size": 4,
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": { "columnMatch": "TotalAlerts", "formatter": 1 },
+          "leftContent": { "columnMatch": "TotalAlerts", "formatter": 12, "formatOptions": { "palette": "red" } },
+          "showBorder": true
+        }
+      },
+      "name": "kpi-tiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "SecurityResources\n| where type == \"microsoft.security/alerts\"\n| where properties.alertType startswith \"AI.\"\n| extend AlertType = tostring(properties.alertType),\n         DisplayName = tostring(properties.alertDisplayName),\n         Severity = tostring(properties.severity),\n         StartTime = todatetime(properties.startTimeUtc),\n         Status = tostring(properties.status),\n         ResourceId = tostring(properties.resourceIdentifiers[0].azureResourceId)\n| summarize Count = count(), LastSeen = max(StartTime) by AlertType, DisplayName, Severity\n| order by Count desc",
+        "size": 0,
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "Severity",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "icons",
+                "thresholdsGrid": [
+                  { "operator": "==", "thresholdValue": "High", "representation": "critical", "text": "{0}{1}" },
+                  { "operator": "==", "thresholdValue": "Medium", "representation": "warning", "text": "{0}{1}" },
+                  { "operator": "==", "thresholdValue": "Low", "representation": "success", "text": "{0}{1}" }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "name": "alerts-by-type"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Détail des alertes (les plus récentes)\nInclut la ressource visée et l'horodatage — utile pour investiguer un incident précis et corréler avec le workbook Token Consumption (mêmes plages horaires)."
+      },
+      "name": "detail-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "SecurityResources\n| where type == \"microsoft.security/alerts\"\n| where properties.alertType startswith \"AI.\"\n| extend AlertType = tostring(properties.alertType),\n         DisplayName = tostring(properties.alertDisplayName),\n         Severity = tostring(properties.severity),\n         StartTime = todatetime(properties.startTimeUtc),\n         Status = tostring(properties.status),\n         Description = tostring(properties.description),\n         ResourceId = tostring(properties.resourceIdentifiers[0].azureResourceId)\n| project StartTime, DisplayName, Severity, Status, ResourceId, Description\n| order by StartTime desc\n| take 50",
+        "size": 0,
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "visualization": "table"
+      },
+      "name": "alerts-detail"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## État des extensions Defender for AI Services\nVérifie que les 3 extensions du plan sont dans l'état attendu (`AIPromptEvidence` doit être **On** pour capturer les prompts/réponses associés aux alertes ; `AIModelScanner` et `AIPromptSharingWithPurview` sont optionnels selon vos besoins).\n\n👉 Cette information n'est pas exposée par Resource Graph — vérifier via CLI :\n```bash\naz security pricing show -n AI --query \"{tier:pricingTier, extensions:extensions}\"\n```"
+      },
+      "name": "extensions-note"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "⚠️ **Limite connue** : les alertes Defender ne remontent qu'après détection effective d'un comportement suspect — un test de prompt injection \"léger\" peut ne déclencher aucune alerte si le contenu n'est pas jugé assez malveillant par les modèles de détection. L'absence d'alerte ne signifie pas l'absence de risque, seulement l'absence de détection à ce jour."
+      },
+      "name": "limitation-note"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}
